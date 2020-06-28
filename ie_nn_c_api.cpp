@@ -127,8 +127,7 @@ int32_t ie_compilation_finish(ie_compilation_t* compliation) {
     if (compliation == nullptr) {
         return IE::error_t::BAD_DATA;
     }
-    compliation->object->Compile();
-    return IE::error_t::NOT_ERROR;
+    return compliation->object->Compile();
 }
 
 void ie_compilation_free(ie_compilation_t *compilation) {
@@ -145,8 +144,7 @@ int32_t ie_execution_create(ie_compilation_t* compliation,
     }
     *execution = new ie_execution_t;
     (*execution)->object.reset(new IE::Execution(std::move(compliation->object)));
-    (*execution)->object->Init();
-    return IE::error_t::NOT_ERROR;
+    return (*execution)->object->Init();
 }
 
 int32_t ie_execution_set_input(ie_execution_t* execution,
@@ -171,8 +169,7 @@ int32_t ie_execution_start_compute(ie_execution_t* execution) {
     if (execution == nullptr) {
         return IE::error_t::BAD_DATA;
     }
-    execution->object->StartCompute();
-    return IE::error_t::NOT_ERROR;
+    return execution->object->StartCompute();
 }
 
 void ie_execution_free(ie_execution_t *execution) {
