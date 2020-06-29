@@ -2,66 +2,117 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-set(TARGET_NAME ie_nn_c_api)
-#set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
+cmake_minimum_required (VERSION 2.8.12)
 
-file(GLOB SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
-file(GLOB HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/*.h)
+project(ienn)
+if(POLICY CMP0063)
+    cmake_policy(SET CMP0063 NEW)
+endif()
 
-# create library
+if (CMAKE_BUILD_TYPE STREQUAL "")
+    message(STATUS "CMAKE_BUILD_TYPE not defined, 'Release' will be used")
+    set(CMAKE_BUILD_TYPE "Release")
+endif()
 
-add_library(${TARGET_NAME} SHARED ${HEADERS} ${SOURCES})
-
-target_link_libraries(${TARGET_NAME} PRIVATE ${InferenceEngine_LIBRARIES})
-
-target_include_directories(${TARGET_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" "${InferenceEngine_INCLUDE_DIRS}")
-
-#add_cpplint_target(${TARGET_NAME}_cpplint FOR_TARGETS ${TARGET_NAME})
-
-
-MESSAGE( STATUS "==============this var key = ${InferenceEngine_INCLUDE_DIRS}.")
-
-# export
-
-export(TARGETS ${TARGET_NAME} NAMESPACE IE:: APPEND FILE "${CMAKE_BINARY_DIR}/targets.cmake")
-
-# install
-
-install(TARGETS ${TARGET_NAME}
-        RUNTIME DESTINATION ${IE_CPACK_LIBRARY_PATH} COMPONENT core
-        ARCHIVE DESTINATION ${IE_CPACK_LIBRARY_PATH} COMPONENT core
-        LIBRARY DESTINATION ${IE_CPACK_LIBRARY_PATH} COMPONENT core)
-
-install(DIRECTORY ${InferenceEngine_C_API_SOURCE_DIR}/include/
-        DESTINATION ${IE_CPACK_IE_DIR}/include/
-        COMPONENT core)
-
-macro(disable_deprecated_warnings)
-    if(WIN32)
-        if(CMAKE_CXX_COMPILER_ID MATCHES Intel)
-            set(ie_c_cxx_deprecated "/Qdiag-disable:1478,1786")
-        elseif(CMAKE_CXX_COMPILER_ID MATCHES MSVC)
-            set(ie_c_cxx_deprecated "/wd4996")
-        endif()
-    else()
-        if(CMAKE_CXX_COMPILER_ID STREQUAL Intel)
-            set(ie_c_cxx_deprecated "-diag-disable=1478,1786")
-        else()
-            set(ie_c_cxx_deprecated "-Wno-deprecated-declarations")
-        endif()
+if (NOT(BIN_FOLDER))
+    string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} ARCH)
+    if(ARCH STREQUAL "x86_64" OR ARCH STREQUAL "amd64") # Windows detects Intel's 64-bit CPU as AMD64
+        set(ARCH intel64)
+    elseif(ARCH STREQUAL "i386")
+        set(ARCH ia32)
     endif()
 
-    if(NOT ie_c_cxx_deprecated)
-        message(WARNING "Unsupported CXX compiler ${CMAKE_CXX_COMPILER_ID}")
+    set (BIN_FOLDER ${ARCH})
+endif()
+
+if(IE_MAIN_SOURCE_DIR)
+    # in case if ienn are built from IE repo
+    set(IE_NN_MAIN_DIR ${OpenVINO_MAIN_SOURCE_DIR})
+    # hint for find_package(InferenceEngine in the samples folder)
+    set(InferenceEngine_DIR "${CMAKE_BINARY_DIR}")
+else()
+    # in case if ienn are built out of IE repo
+    set(IE_NN_MAIN_DIR ${CMAKE_CURRENT_BINARY_DIR})
+endif()
+
+if(NOT(UNIX))
+    set (CMAKE_LIBRARY_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER})
+    set (CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER})
+    set (CMAKE_COMPILE_PDB_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER})
+    set (CMAKE_PDB_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER})
+    set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER})
+else ()
+    set (CMAKE_LIBRARY_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER}/${CMAKE_BUILD_TYPE}/lib)
+    set (CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER}/${CMAKE_BUILD_TYPE}/lib)
+    set (CMAKE_COMPILE_PDB_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER}/${CMAKE_BUILD_TYPE})
+    set (CMAKE_PDB_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER}/${CMAKE_BUILD_TYPE})
+    set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${IE_NN_MAIN_DIR}/${BIN_FOLDER}/${CMAKE_BUILD_TYPE})
+endif()
+
+if (WIN32)
+    if (NOT "${CMAKE_SIZEOF_VOID_P}" EQUAL "8")
+        message(FATAL_ERROR "Only 64-bit supported on Windows")
     endif()
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${ie_c_cxx_deprecated}")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${ie_c_cxx_deprecated}")
-endmacro()
+    set_property (DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS _CRT_SECURE_NO_WARNINGS)
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_SCL_SECURE_NO_WARNINGS -DNOMINMAX")
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc") #no asynchronous structured exception handling
+    set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /LARGEADDRESSAWARE")
 
-function(nn_builder_disable_warnings)
-    disable_deprecated_warnings()
-    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR} PROPERTIES COMPILE_FLAGS "${ie_c_cxx_deprecated}")
-endfunction()
+    if (TREAT_WARNING_AS_ERROR)
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /WX") #treating warnings as errors
+    endif ()
 
-nn_builder_disable_warnings()
+    if (CMAKE_CXX_COMPILER_ID MATCHES MSVC)
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4251 /wd4275 /wd4267") #disable some warnings
+    endif()
+else()
+    if(TREAT_WARNING_AS_ERROR)
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror") #treating warnings as errors
+    endif()
+
+    if (APPLE)
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=unused-command-line-argument")
+    elseif(UNIX)
+        set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wuninitialized -Winit-self")
+        if(NOT CMAKE_CXX_COMPILER_ID STREQUAL Clang)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wmaybe-uninitialized")
+        endif()
+    endif()
+endif()
+
+####################################
+## to use C++11; can overwritten via cmake command line
+if(NOT DEFINED CMAKE_CXX_STANDARD)
+    set (CMAKE_CXX_STANDARD 11)
+    set (CMAKE_CXX_EXTENSIONS OFF)
+    set (CMAKE_CXX_STANDARD_REQUIRED ON)
+    if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+        set (CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+    endif()
+endif()
+####################################
+
+set (GFLAGS_IS_SUBPROJECT TRUE)
+set (HAVE_SYS_STAT_H 1)
+set (HAVE_INTTYPES_H 1)
+set (INTTYPES_FORMAT C99)
+set (BUILD_TESTING OFF)
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
+endif()
+
+if(IE_NOT_FOUND_MESSAGE)
+    # the flag is used to throw a custom message in case if the IE package is not found.
+    find_package(InferenceEngine 2.1 QUIET)
+    if (NOT(InferenceEngine_FOUND))
+        message(FATAL_ERROR ${IE_NOT_FOUND_MESSAGE})
+    endif()
+else()
+    find_package(InferenceEngine 2.1 REQUIRED)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_subdirectory(src)
+endif()
