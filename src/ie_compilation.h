@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 
+#include "constants.h"
 #include "utils.h"
 #include "ie_nn_c_api.h"
 #include <inference_engine.hpp>
